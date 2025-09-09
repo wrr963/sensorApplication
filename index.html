@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>3D スマホ加速度ビューア</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f0f2f5;
+            color: #333;
+            overflow: hidden;
+        }
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+        .sensor-data {
+            margin-bottom: 30px;
+            text-align: center;
+            background-color: #ffffff;
+            padding: 20px 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+        .sensor-data p {
+            margin: 5px 0;
+            font-size: 1.1em;
+            font-weight: bold;
+        }
+        .sensor-data span {
+            display: inline-block;
+            width: 80px;
+            text-align: right;
+            color: #007bff;
+        }
+        #threejsCanvas {
+            border: 2px solid #ddd;
+            background-color: #ffffff;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+            display: block; /* canvas要素の余白をなくす */
+        }
+        .error-message {
+            color: #e74c3c;
+            font-weight: bold;
+            margin-top: 20px;
+            text-align: center;
+        }
+        .info-message {
+            margin-top: 20px;
+            color: #666;
+            font-size: 0.9em;
+            text-align: center;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            margin-top: 15px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #permissionPrompt {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            text-align: center;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.150.1/three.min.js"></script>
+</head>
+<body>
+    <h1>3D スマホ加速度ビューア</h1>
+
+    <div class="sensor-data">
+        <p>X軸 (左右): <span id="x-axis">0.00</span> m/s²</p>
+        <p>Y軸 (前後): <span id="y-axis">0.00</span> m/s²</p>
+        <p>Z軸 (上下): <span id="z-axis">0.00</span> m/s²</p>
+        <p>合計加速度: <span id="magnitude">0.00</span> m/s²</p>
+    </div>
+
+    <div id="threejsContainer" style="width: 300px; height: 300px;"></div>
+
+    <div id="errorMessage" class="error-message" style="display: none;"></div>
+    <div class="info-message">
+        <p>※ このアプリはHTTPS接続でのみ動作します。</p>
+        <p>※ センサーへのアクセス許可を求められた場合は「許可」してください。</p>
+        <p>※ iOS Safariでは、センサー使用前に画面タップが必要です。</p>
+    </div>
+
+    <div id="permissionPrompt">
+        <h2>センサーアクセスを許可してください</h2>
+        <p>このアプリはデバイスの動きと向きのセンサーを使用します。</p>
+        <button id="requestPermissionButton">許可する</button>
+    </div>
+
+    <script>
+        // DOM要素の取得
+        const xAxisElement = document.getElementById('x-axis');
+        const yAxisElement = document.getElementById('y-axis');
+        const zAxisElement = document.getElementById('z-axis');
+        const magnitudeElement = document.getElementById('magnitude');
+        const errorMessageElement = document.getElementById('errorMessage');
+        const permissionPrompt = document.getElementById('permissionPrompt');
+        const requestPermissionButton = document.getElementById('requestPermissionButton');
+        const threejsContainer = document.getElementById('threejsContainer');
+
+        let currentAcceleration = { x: 0, y: 0, z: 0 };
+        let magnitude = 0;
+        let deviceOrientation = { alpha: 0, beta: 0, gamma: 0 }; // Z, X, Y軸の回転
+        let deviceQuaternion = new THREE.Quaternion(); // デバイスの向きをThree.jsで扱うためのQuaternion
+
+        // Three.js シーンのセットアップ
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, threejsContainer.clientWidth / threejsContainer.clientHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); // alpha: trueで背景透明
+        renderer.setSize(threejsContainer.clientWidth, threejsContainer.clientHeight);
+        threejsContainer.appendChild(renderer.domElement);
+
+        // ライトの追加
+        const ambientLight = new THREE.AmbientLight(0x404040); // soft white light
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(0, 1, 1).normalize();
+        scene.add(directionalLight);
+
+        // スマートフォンを模したボックス (デバイス座標系を表現)
+        const phoneGeometry = new THREE.BoxGeometry(0.5, 1.0, 0.1); // 幅、高さ、厚み
+        const phoneMaterial = new THREE.MeshPhongMaterial({ color: 0x8888ff, transparent: true, opacity: 0.7 });
+        const phoneMesh = new THREE.Mesh(phoneGeometry, phoneMaterial);
+        scene.add(phoneMesh);
+
+        // 加速度を表現する矢印
+        const arrowOrigin = new THREE.Vector3(0, 0, 0);
+        const arrowDirection = new THREE.Vector3(0, 0, 0);
+        const arrowLength = 0.8;
+        const arrowHex = 0xff0000; // 赤色
+        const accelerationArrow = new THREE.ArrowHelper(arrowDirection, arrowOrigin, arrowLength, arrowHex);
+        phoneMesh.add(accelerationArrow); // スマホオブジェクトの子要素として追加することで、スマホと一緒に回転する
+
+        camera.position.z = 2; // カメラを少し後ろに引く
+
+        // センサーアクセス権限の要求 (iOS 13+ Safariの場合)
+        function requestSensorPermission() {
+            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            initSensors();
+                            permissionPrompt.style.display = 'none';
+                        } else {
+                            errorMessageElement.textContent = 'センサーへのアクセスが拒否されました。';
+                            errorMessageElement.style.display = 'block';
+                            permissionPrompt.style.display = 'none';
+                        }
+                    })
+                    .catch(console.error);
+            } else {
+                // iOS 13未満またはAndroid Chromeなど、許可が不要なブラウザ
+                initSensors();
+                permissionPrompt.style.display = 'none';
+            }
+        }
+
+        requestPermissionButton.addEventListener('click', requestSensorPermission);
+
+
+        // センサーの初期化とデータ取得
+        function initSensors() {
+            // --- LinearAccelerationSensor ---
+            if ('LinearAccelerationSensor' in window) {
+                const accSensor = new LinearAccelerationSensor({ frequency: 60 });
+
+                accSensor.addEventListener('reading', () => {
+                    // 加速度センサーの座標系はThree.jsの標準座標系に合致しない場合があるため、変換を考慮
+                    // LinearAccelerationSensor: X(右), Y(手前), Z(上)
+                    // Three.js: X(右), Y(上), Z(奥)
+                    // ここでは Three.js のY軸を加速度センサーのZ軸、Three.js のZ軸を加速度センサーのY軸として扱う
+                    currentAcceleration.x = accSensor.x || 0;
+                    currentAcceleration.y = accSensor.z || 0; // 加速度センサーのZ軸をThree.jsのY軸へ
+                    currentAcceleration.z = -(accSensor.y || 0); // 加速度センサーのY軸をThree.jsの-Z軸へ (Three.jsのZは奥が負)
+
+                    magnitude = Math.sqrt(
+                        currentAcceleration.x * currentAcceleration.x +
+                        currentAcceleration.y * currentAcceleration.y +
+                        currentAcceleration.z * currentAcceleration.z
+                    );
+
+                    xAxisElement.textContent = currentAcceleration.x.toFixed(2);
+                    yAxisElement.textContent = currentAcceleration.y.toFixed(2);
+                    zAxisElement.textContent = currentAcceleration.z.toFixed(2);
+                    magnitudeElement.textContent = magnitude.toFixed(2);
+                });
+
+                accSensor.addEventListener('error', event => {
+                    console.error("LinearAccelerationSensor Error:", event.error.name, event.error.message);
+                    errorMessageElement.textContent = `加速度センサーエラー: ${event.error.message}`;
+                    errorMessageElement.style.display = 'block';
+                });
+                accSensor.start();
+            } else {
+                errorMessageElement.textContent = 'お使いのブラウザは LinearAccelerationSensor API をサポートしていません。';
+                errorMessageElement.style.display = 'block';
+            }
+
+            // --- DeviceOrientationEvent ---
+            if (window.DeviceOrientationEvent) {
+                window.addEventListener('deviceorientation', (event) => {
+                    // alpha: Z軸周りの回転 (ヨー)
+                    // beta: X軸周りの回転 (ピッチ)
+                    // gamma: Y軸周りの回転 (ロール)
+                    deviceOrientation.alpha = event.alpha || 0;
+                    deviceOrientation.beta = event.beta || 0;
+                    deviceOrientation.gamma = event.gamma || 0;
+
+                    // DeviceOrientationEventの値をThree.jsのQuaternionに変換
+                    // Three.jsの座標系とDeviceOrientationEventの座標系のマッピング調整が必要
+                    // 多くの実装例では、beta, gamma, alphaの順に適用し、Z軸の反転、軸の入れ替えを行う
+                    
+                    // iOSデバイスのDeviceOrientationEventの`alpha`は地磁気北を基準にすることが多いため
+                    // `screen.orientation.angle` を用いて、ブラウザの向きを考慮した補正を行う
+                    const screenOrientation = window.screen.orientation ? window.screen.orientation.angle : 0;
+                    
+                    // 回転値をラジアンに変換
+                    const alphaRad = THREE.MathUtils.degToRad(deviceOrientation.alpha);
+                    const betaRad = THREE.MathUtils.degToRad(deviceOrientation.beta);
+                    const gammaRad = THREE.MathUtils.degToRad(deviceOrientation.gamma);
+                    const orientRad = THREE.MathUtils.degToRad(screenOrientation);
+
+                    // Three.js DeviceOrientationControlsの内部ロジックを参考に変換
+                    // これは複雑なので、一般的には`DeviceOrientationControls`ライブラリを使う方が良いですが、
+                    // ここでは直接クォータニオンを計算する簡略版を試みます。
+                    // 非常に複雑なため、正確なマッピングは試行錯誤が必要です。
+                    // 簡単化のため、betaとgammaを直接X, Y軸の回転として適用
+                    // alphaはZ軸回転 (ヨー)
+                    
+                    // 重力によるデバイスの傾きを考慮したクォータニオン
+                    const q = new THREE.Quaternion();
+                    const zee = new THREE.Vector3( 0, 0, 1 ); // Z軸
+                    const euler = new THREE.Euler();
+
+                    // YZX (Euler.js) の順序で適用 (iOSのDeviceOrientationEventに多い)
+                    euler.set( betaRad, gammaRad, alphaRad, 'YXZ' ); // YXZ順でロール、ピッチ、ヨー
+                    q.setFromEuler( euler ); // このクォータニオンが地球に対するデバイスの向き
+
+                    // デバイスの向きの補正 (画面の向き)
+                    const q2 = new THREE.Quaternion();
+                    q2.setFromAxisAngle( zee, -orientRad ); // 画面回転の補正
+                    
+                    // q.multiply(q2); // 多くのデバイスでこれで補正される
+
+                    deviceQuaternion.copy(q);
+
+                }, true); // trueでキャプチャフェーズでイベントを受け取る
+            } else {
+                errorMessageElement.textContent = 'お使いのブラウザは DeviceOrientationEvent API をサポートしていません。';
+                errorMessageElement.style.display = 'block';
+            }
+
+             errorMessageElement.style.display = 'none'; // エラーメッセージを非表示にする
+        }
+
+        // Three.jsアニメーションループ
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // スマートフォンオブジェクトの回転を更新
+            phoneMesh.setRotationFromQuaternion(deviceQuaternion);
+
+            // 加速度矢印の更新
+            if (magnitude > 0.1) { // ノイズ除去
+                // 矢印の方向と長さを設定
+                // 加速度はデバイスのローカル座標系で発生するため、phoneMeshの子として定義されたarrowは
+                // 自動的にデバイスの回転に合わせて回転する。
+                // 方向ベクトルは単位ベクトルに正規化する必要がある。
+                const dir = new THREE.Vector3(currentAcceleration.x, currentAcceleration.y, currentAcceleration.z);
+                const currentArrowMagnitude = Math.min(magnitude * 0.5, arrowLength); // 長さを調整
+
+                accelerationArrow.setDirection(dir.normalize()); // 方向を正規化して設定
+                accelerationArrow.setLength(currentArrowMagnitude, 0.2, 0.1); // 長さ、ヘッドの長さ、ヘッドの幅
+                accelerationArrow.visible = true;
+            } else {
+                accelerationArrow.visible = false; // 加速度が小さい場合は非表示
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // アプリ起動時にセンサーの許可をチェック
+        window.addEventListener('load', () => {
+            // iOS 13+ Safariの場合、DeviceOrientationEvent.requestPermission が必要
+            // Android Chromeなどでは不要
+            if (typeof DeviceOrientationEvent.requestPermission === 'function' && !navigator.userAgent.match(/android/i)) {
+                permissionPrompt.style.display = 'flex'; // 許可プロンプトを表示
+            } else {
+                initSensors(); // 許可不要なら直接センサー開始
+            }
+            animate(); // アニメーションループを開始
+        });
+
+        // ウィンドウのリサイズ対応
+        window.addEventListener('resize', () => {
+            const width = threejsContainer.clientWidth;
+            const height = threejsContainer.clientHeight;
+            renderer.setSize(width, height);
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+        });
+
+    </script>
+</body>
+</html>
