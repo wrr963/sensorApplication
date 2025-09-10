@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>DeviceOrientation 許可リクエスト</title>
+    <title>モーションセンサービューア</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
         body {
@@ -17,9 +17,15 @@
         }
         .container {
             background-color: #fff;
-            padding: 2rem;
+            padding: 1.5rem;
             border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px
+ 15px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 400px;
+        }
+        h1 {
+            margin-top: 0;
         }
         button {
             font-size: 1.2rem;
@@ -31,19 +37,23 @@
             cursor: pointer;
             margin-bottom: 1rem;
         }
-        button:disabled {
-            background-color: #ccc;
+        .sensor-data h2 {
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 0.3rem;
         }
         .sensor-data p {
             font-size: 1.1em;
             margin: 0.5rem 0;
-            font-family: monospace; /* 数値が見やすいように */
+            font-family: monospace;
+            display: flex;
+            justify-content: space-between;
         }
         .sensor-data span {
-            display: inline-block;
-            width: 80px;
-            text-align: right;
             font-weight: bold;
+            min-width: 80px;
+            text-align: right;
         }
     </style>
 </head>
@@ -54,59 +64,86 @@
         <button id="permissionButton">センサーを有効化</button>
         
         <div class="sensor-data">
+            <h2>向き (Orientation)</h2>
             <p>alpha (方角): <span id="alpha">---</span></p>
             <p>beta (前後傾斜): <span id="beta">---</span></p>
             <p>gamma (左右傾斜): <span id="gamma">---</span></p>
+            
+            <h2>加速度 (Acceleration)</h2>
+            <p>x軸: <span id="accelX">---</span></p>
+            <p>y軸: <span id="accelY">---</span></p>
+            <p>z軸: <span id="accelZ">---</span></p>
         </div>
     </div>
 
     <script>
         const permissionButton = document.getElementById('permissionButton');
+        // 向き
         const alphaElement = document.getElementById('alpha');
         const betaElement = document.getElementById('beta');
         const gammaElement = document.getElementById('gamma');
+        // 加速度
+        const accelXElement = document.getElementById('accelX');
+        const accelYElement = document.getElementById('accelY');
+        const accelZElement = document.getElementById('accelZ');
 
-        // センサーデータを更新するイベントハンドラ
+        // 向きセンサーのイベントハンドラ
         function handleOrientation(event) {
             alphaElement.textContent = event.alpha.toFixed(2);
             betaElement.textContent = event.beta.toFixed(2);
             gammaElement.textContent = event.gamma.toFixed(2);
         }
 
+        // 加速度センサーのイベントハンドラ
+        function handleMotion(event) {
+            // event.acceleration には重力加速度が含まれる
+            // 純粋な動きの加速度を取得するには event.accelerationIncludingGravity を使う
+            const accel = event.accelerationIncludingGravity;
+            accelXElement.textContent = accel.x.toFixed(2);
+            accelYElement.textContent = accel.y.toFixed(2);
+            accelZElement.textContent = accel.z.toFixed(2);
+        }
+
         // センサーのリスナーを開始する関数
-        function startSensor() {
+        function startSensors() {
+            // 向きセンサーのイベントリスナーを追加
             window.addEventListener('deviceorientation', handleOrientation);
+            // 加速度センサーのイベントリスナーを追加
+            window.addEventListener('devicemotion', handleMotion);
+
             permissionButton.style.display = 'none'; // ボタンを非表示にする
         }
 
-        // --- ここからがメインのロジック ---
+        // --- メインロジック ---
 
-        // 1. DeviceOrientationEvent.requestPermission が存在するかチェック (iOS 13以降のSafariの目印)
-        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-            
-            // iOS 13以降のデバイスの場合
+        // iOS 13以降かチェック
+        if (typeof DeviceOrientationEvent.requestPermission === 'function' && typeof DeviceMotionEvent.requestPermission === 'function') {
             permissionButton.addEventListener('click', () => {
                 DeviceOrientationEvent.requestPermission()
                     .then(response => {
                         if (response === 'granted') {
-                            // 許可された場合
-                            startSensor();
+                            // 向きセンサーの許可が得られたら、加速度センサーの許可も求める
+                            DeviceMotionEvent.requestPermission()
+                                .then(response => {
+                                    if (response === 'granted') {
+                                        startSensors();
+                                    } else {
+                                        alert('加速度センサーの使用が許可されませんでした。');
+                                    }
+                                })
                         } else {
-                            // 拒否された場合
-                            alert('センサーの使用が許可されませんでした。');
+                            alert('向きセンサーの使用が許可されませんでした。');
                         }
                     })
                     .catch(error => {
-                        // エラーが発生した場合
                         console.error(error);
                         alert('センサーの許可リクエスト中にエラーが発生しました。');
                     });
             });
-
         } else {
-            // Androidや古いiOSなど、許可が不要なデバイスの場合
+            // Androidや古いiOSなど、許可が不要なデバイス
             console.log('このデバイスでは許可リクエストは不要です。');
-            startSensor();
+            startSensors();
         }
     </script>
 </body>
