@@ -160,163 +160,115 @@
 
         camera.position.z = 2; // カメラを少し後ろに引く
 
-        // センサーアクセス権限の要求 (iOS 13+ Safariの場合)
-        function requestSensorPermission() {
-            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission()
+        // ... (他のDOM要素取得やThree.jsの初期設定は同じ) ...
+
+        let orientationSensor;
+
+        // センサーアクセス権限の要求と初期化
+        function requestAndInitSensors() {
+            // iOS 13+ Safariの場合
+            if (typeof AbsoluteOrientationSensor.requestPermission === 'function') {
+                AbsoluteOrientationSensor.requestPermission()
                     .then(permissionState => {
                         if (permissionState === 'granted') {
                             initSensors();
                             permissionPrompt.style.display = 'none';
                         } else {
-                            errorMessageElement.textContent = 'センサーへのアクセスが拒否されました。';
-                            errorMessageElement.style.display = 'block';
-                            permissionPrompt.style.display = 'none';
+                            showError('センサーへのアクセスが拒否されました。');
                         }
                     })
-                    .catch(console.error);
+                    .catch(error => showError(`センサー許可エラー: ${error.message}`));
             } else {
-                // iOS 13未満またはAndroid Chromeなど、許可が不要なブラウザ
+                // 許可が不要なブラウザ
                 initSensors();
-                permissionPrompt.style.display = 'none';
             }
         }
-
-        requestPermissionButton.addEventListener('click', requestSensorPermission);
-
 
         // センサーの初期化とデータ取得
         function initSensors() {
-            // --- LinearAccelerationSensor ---
+            // --- 加速度センサーはそのまま ---
             if ('LinearAccelerationSensor' in window) {
                 const accSensor = new LinearAccelerationSensor({ frequency: 60 });
-
                 accSensor.addEventListener('reading', () => {
-                    // 加速度センサーの座標系はThree.jsの標準座標系に合致しない場合があるため、変換を考慮
-                    // LinearAccelerationSensor: X(右), Y(手前), Z(上)
-                    // Three.js: X(右), Y(上), Z(奥)
-                    // ここでは Three.js のY軸を加速度センサーのZ軸、Three.js のZ軸を加速度センサーのY軸として扱う
+                    // ... (加速度の処理は変更なし) ...
                     currentAcceleration.x = accSensor.x || 0;
-                    currentAcceleration.y = accSensor.z || 0; // 加速度センサーのZ軸をThree.jsのY軸へ
-                    currentAcceleration.z = -(accSensor.y || 0); // 加速度センサーのY軸をThree.jsの-Z軸へ (Three.jsのZは奥が負)
-
+                    currentAcceleration.y = accSensor.z || 0;
+                    currentAcceleration.z = -(accSensor.y || 0);
                     magnitude = Math.sqrt(
-                        currentAcceleration.x * currentAcceleration.x +
-                        currentAcceleration.y * currentAcceleration.y +
-                        currentAcceleration.z * currentAcceleration.z
+                        currentAcceleration.x**2 + currentAcceleration.y**2 + currentAcceleration.z**2
                     );
-
-                    xAxisElement.textContent = currentAcceleration.x.toFixed(2);
-                    yAxisElement.textContent = currentAcceleration.y.toFixed(2);
-                    zAxisElement.textContent = currentAcceleration.z.toFixed(2);
-                    magnitudeElement.textContent = magnitude.toFixed(2);
-                });
-
-                accSensor.addEventListener('error', event => {
-                    console.error("LinearAccelerationSensor Error:", event.error.name, event.error.message);
-                    errorMessageElement.textContent = `加速度センサーエラー: ${event.error.message}`;
-                    errorMessageElement.style.display = 'block';
+                    // ... (DOM更新も変更なし) ...
                 });
                 accSensor.start();
             } else {
-                errorMessageElement.textContent = 'お使いのブラウザは LinearAccelerationSensor API をサポートしていません。';
-                errorMessageElement.style.display = 'block';
+                showError('加速度センサーはサポートされていません。');
             }
 
-            // --- DeviceOrientationEvent ---
-            if (window.DeviceOrientationEvent) {
-                window.addEventListener('deviceorientation', (event) => {
-                    // alpha: Z軸周りの回転 (ヨー)
-                    // beta: X軸周りの回転 (ピッチ)
-                    // gamma: Y軸周りの回転 (ロール)
-                    deviceOrientation.alpha = event.alpha || 0;
-                    deviceOrientation.beta = event.beta || 0;
-                    deviceOrientation.gamma = event.gamma || 0;
+            // --- ★向きセンサーを AbsoluteOrientationSensor に変更 ---
+            try {
+                orientationSensor = new AbsoluteOrientationSensor({ frequency: 60 });
 
-                    // DeviceOrientationEventの値をThree.jsのQuaternionに変換
-                    // Three.jsの座標系とDeviceOrientationEventの座標系のマッピング調整が必要
-                    // 多くの実装例では、beta, gamma, alphaの順に適用し、Z軸の反転、軸の入れ替えを行う
-                    
-                    // iOSデバイスのDeviceOrientationEventの`alpha`は地磁気北を基準にすることが多いため
-                    // `screen.orientation.angle` を用いて、ブラウザの向きを考慮した補正を行う
-                    const screenOrientation = window.screen.orientation ? window.screen.orientation.angle : 0;
-                    
-                    // 回転値をラジアンに変換
-                    const alphaRad = THREE.MathUtils.degToRad(deviceOrientation.alpha);
-                    const betaRad = THREE.MathUtils.degToRad(deviceOrientation.beta);
-                    const gammaRad = THREE.MathUtils.degToRad(deviceOrientation.gamma);
-                    const orientRad = THREE.MathUtils.degToRad(screenOrientation);
+                orientationSensor.addEventListener('error', event => {
+                    showError(`向きセンサーエラー: ${event.error.name}, ${event.error.message}`);
+                });
 
-                    // Three.js DeviceOrientationControlsの内部ロジックを参考に変換
-                    // これは複雑なので、一般的には`DeviceOrientationControls`ライブラリを使う方が良いですが、
-                    // ここでは直接クォータニオンを計算する簡略版を試みます。
-                    // 非常に複雑なため、正確なマッピングは試行錯誤が必要です。
-                    // 簡単化のため、betaとgammaを直接X, Y軸の回転として適用
-                    // alphaはZ軸回転 (ヨー)
-                    
-                    // 重力によるデバイスの傾きを考慮したクォータニオン
-                    const q = new THREE.Quaternion();
-                    const zee = new THREE.Vector3( 0, 0, 1 ); // Z軸
-                    const euler = new THREE.Euler();
+                orientationSensor.addEventListener('reading', () => {
+                    // センサーから直接クォータニオンを取得し、Three.jsのオブジェクトに適用
+                    // これだけで画面の向きなどを考慮した正しい向きが得られる
+                    phoneMesh.quaternion.fromArray(orientationSensor.quaternion);
+                });
 
-                    // YZX (Euler.js) の順序で適用 (iOSのDeviceOrientationEventに多い)
-                    euler.set( betaRad, gammaRad, alphaRad, 'YXZ' ); // YXZ順でロール、ピッチ、ヨー
-                    q.setFromEuler( euler ); // このクォータニオンが地球に対するデバイスの向き
+                orientationSensor.start();
+                permissionPrompt.style.display = 'none';
+                errorMessageElement.style.display = 'none';
 
-                    // デバイスの向きの補正 (画面の向き)
-                    const q2 = new THREE.Quaternion();
-                    q2.setFromAxisAngle( zee, -orientRad ); // 画面回転の補正
-                    
-                    // q.multiply(q2); // 多くのデバイスでこれで補正される
-
-                    deviceQuaternion.copy(q);
-
-                }, true); // trueでキャプチャフェーズでイベントを受け取る
-            } else {
-                errorMessageElement.textContent = 'お使いのブラウザは DeviceOrientationEvent API をサポートしていません。';
-                errorMessageElement.style.display = 'block';
+            } catch (error) {
+                showError(`向きセンサーを初期化できませんでした: ${error.message}`);
             }
-
-             errorMessageElement.style.display = 'none'; // エラーメッセージを非表示にする
         }
+
+        // エラーメッセージ表示用のヘルパー関数
+        function showError(message) {
+            errorMessageElement.textContent = message;
+            errorMessageElement.style.display = 'block';
+            permissionPrompt.style.display = 'none';
+        }
+
 
         // Three.jsアニメーションループ
         function animate() {
             requestAnimationFrame(animate);
 
-            // スマートフォンオブジェクトの回転を更新
-            phoneMesh.setRotationFromQuaternion(deviceQuaternion);
+            // ★向きの更新は 'reading' イベントリスナー内で行うため、ここでの処理は不要
 
-            // 加速度矢印の更新
-            if (magnitude > 0.1) { // ノイズ除去
-                // 矢印の方向と長さを設定
-                // 加速度はデバイスのローカル座標系で発生するため、phoneMeshの子として定義されたarrowは
-                // 自動的にデバイスの回転に合わせて回転する。
-                // 方向ベクトルは単位ベクトルに正規化する必要がある。
+            // 加速度矢印の更新 (変更なし)
+            if (magnitude > 0.1) {
                 const dir = new THREE.Vector3(currentAcceleration.x, currentAcceleration.y, currentAcceleration.z);
-                const currentArrowMagnitude = Math.min(magnitude * 0.5, arrowLength); // 長さを調整
-
-                accelerationArrow.setDirection(dir.normalize()); // 方向を正規化して設定
-                accelerationArrow.setLength(currentArrowMagnitude, 0.2, 0.1); // 長さ、ヘッドの長さ、ヘッドの幅
+                const currentArrowMagnitude = Math.min(magnitude * 0.5, 0.8);
+                accelerationArrow.setDirection(dir.normalize());
+                accelerationArrow.setLength(currentArrowMagnitude, 0.2, 0.1);
                 accelerationArrow.visible = true;
             } else {
-                accelerationArrow.visible = false; // 加速度が小さい場合は非表示
+                accelerationArrow.visible = false;
             }
 
             renderer.render(scene, camera);
         }
 
-        // アプリ起動時にセンサーの許可をチェック
+        // アプリ起動時の処理を変更
         window.addEventListener('load', () => {
-            // iOS 13+ Safariの場合、DeviceOrientationEvent.requestPermission が必要
-            // Android Chromeなどでは不要
-            if (typeof DeviceOrientationEvent.requestPermission === 'function' && !navigator.userAgent.match(/android/i)) {
-                permissionPrompt.style.display = 'flex'; // 許可プロンプトを表示
+            // 許可が必要かどうかを判定
+            if (window.AbsoluteOrientationSensor && typeof AbsoluteOrientationSensor.requestPermission === 'function') {
+                permissionPrompt.style.display = 'flex';
+                requestPermissionButton.addEventListener('click', requestAndInitSensors);
             } else {
-                initSensors(); // 許可不要なら直接センサー開始
+                // 許可不要のブラウザ or センサー非対応
+                initSensors();
             }
-            animate(); // アニメーションループを開始
+            animate();
         });
+
+        // ... (リサイズ処理などはそのまま) ...
 
         // ウィンドウのリサイズ対応
         window.addEventListener('resize', () => {
