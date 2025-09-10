@@ -25,17 +25,17 @@
         <canvas id="threejsContainer" width="250" height="250"></canvas>
         
         <div class="sensor-data">
-            <h2>Acceleration (m/s²)</h2>
-            <p>x-axis: <span id="accelX">---</span></p>
-            <p>y-axis: <span id="accelY">---</span></p>
-            <p>z-axis: <span id="accelZ">---</span></p>
+            <h2>加速度 (m/s²)</h2>
+            <p>x軸: <span id="accelX">---</span></p>
+            <p>y軸: <span id="accelY">---</span></p>
+            <p>z軸: <span id="accelZ">---</span></p>
         </div>
     </div>
 
     <div id="permissionPrompt">
-        <h2>Sensor Access Required</h2>
-        <p>This app needs access to your device's motion sensors.</p>
-        <button id="requestPermissionButton">Allow Access</button>
+        <h2>センサーアクセスを許可</h2>
+        <p>このアプリはデバイスの向きと動きのセンサーを使用します。</p>
+        <button id="requestPermissionButton">許可する</button>
     </div>
 
     <script>
@@ -97,11 +97,11 @@
                                 permissionPrompt.style.display = 'none';
                                 initSensors();
                             } else {
-                                alert('Acceleration sensor permission was denied.');
+                                alert('加速度センサーの利用が許可されませんでした。');
                             }
                         });
                     } else {
-                        alert('Orientation sensor permission was denied.');
+                        alert('向きセンサーの利用が許可されませんでした。');
                     }
                 }).catch(console.error);
             } else {
