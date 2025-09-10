@@ -160,115 +160,115 @@
 
         camera.position.z = 2; // カメラを少し後ろに引く
 
-        // ... (他のDOM要素取得やThree.jsの初期設定は同じ) ...
+    // ... (他のDOM要素取得やThree.jsの初期設定は同じ) ...
 
-        let orientationSensor;
+    let orientationSensor;
 
-        // センサーアクセス権限の要求と初期化
-        function requestAndInitSensors() {
-            // iOS 13+ Safariの場合
-            if (typeof AbsoluteOrientationSensor.requestPermission === 'function') {
-                AbsoluteOrientationSensor.requestPermission()
-                    .then(permissionState => {
-                        if (permissionState === 'granted') {
-                            initSensors();
-                            permissionPrompt.style.display = 'none';
-                        } else {
-                            showError('センサーへのアクセスが拒否されました。');
-                        }
-                    })
-                    .catch(error => showError(`センサー許可エラー: ${error.message}`));
-            } else {
-                // 許可が不要なブラウザ
-                initSensors();
-            }
+    // センサーアクセス権限の要求と初期化
+    function requestAndInitSensors() {
+        // iOS 13+ Safariの場合
+        if (typeof AbsoluteOrientationSensor.requestPermission === 'function') {
+            AbsoluteOrientationSensor.requestPermission()
+                .then(permissionState => {
+                    if (permissionState === 'granted') {
+                        initSensors();
+                        permissionPrompt.style.display = 'none';
+                    } else {
+                        showError('センサーへのアクセスが拒否されました。');
+                    }
+                })
+                .catch(error => showError(`センサー許可エラー: ${error.message}`));
+        } else {
+            // 許可が不要なブラウザ
+            initSensors();
+        }
+    }
+
+    // センサーの初期化とデータ取得
+    function initSensors() {
+        // --- 加速度センサーはそのまま ---
+        if ('LinearAccelerationSensor' in window) {
+            const accSensor = new LinearAccelerationSensor({ frequency: 60 });
+            accSensor.addEventListener('reading', () => {
+                // ... (加速度の処理は変更なし) ...
+                currentAcceleration.x = accSensor.x || 0;
+                currentAcceleration.y = accSensor.z || 0;
+                currentAcceleration.z = -(accSensor.y || 0);
+                magnitude = Math.sqrt(
+                    currentAcceleration.x**2 + currentAcceleration.y**2 + currentAcceleration.z**2
+                );
+                // ... (DOM更新も変更なし) ...
+            });
+            accSensor.start();
+        } else {
+            showError('加速度センサーはサポートされていません。');
         }
 
-        // センサーの初期化とデータ取得
-        function initSensors() {
-            // --- 加速度センサーはそのまま ---
-            if ('LinearAccelerationSensor' in window) {
-                const accSensor = new LinearAccelerationSensor({ frequency: 60 });
-                accSensor.addEventListener('reading', () => {
-                    // ... (加速度の処理は変更なし) ...
-                    currentAcceleration.x = accSensor.x || 0;
-                    currentAcceleration.y = accSensor.z || 0;
-                    currentAcceleration.z = -(accSensor.y || 0);
-                    magnitude = Math.sqrt(
-                        currentAcceleration.x**2 + currentAcceleration.y**2 + currentAcceleration.z**2
-                    );
-                    // ... (DOM更新も変更なし) ...
-                });
-                accSensor.start();
-            } else {
-                showError('加速度センサーはサポートされていません。');
-            }
+        // --- ★向きセンサーを AbsoluteOrientationSensor に変更 ---
+        try {
+            orientationSensor = new AbsoluteOrientationSensor({ frequency: 60 });
 
-            // --- ★向きセンサーを AbsoluteOrientationSensor に変更 ---
-            try {
-                orientationSensor = new AbsoluteOrientationSensor({ frequency: 60 });
+            orientationSensor.addEventListener('error', event => {
+                showError(`向きセンサーエラー: ${event.error.name}, ${event.error.message}`);
+            });
 
-                orientationSensor.addEventListener('error', event => {
-                    showError(`向きセンサーエラー: ${event.error.name}, ${event.error.message}`);
-                });
+            orientationSensor.addEventListener('reading', () => {
+                // センサーから直接クォータニオンを取得し、Three.jsのオブジェクトに適用
+                // これだけで画面の向きなどを考慮した正しい向きが得られる
+                phoneMesh.quaternion.fromArray(orientationSensor.quaternion);
+            });
 
-                orientationSensor.addEventListener('reading', () => {
-                    // センサーから直接クォータニオンを取得し、Three.jsのオブジェクトに適用
-                    // これだけで画面の向きなどを考慮した正しい向きが得られる
-                    phoneMesh.quaternion.fromArray(orientationSensor.quaternion);
-                });
-
-                orientationSensor.start();
-                permissionPrompt.style.display = 'none';
-                errorMessageElement.style.display = 'none';
-
-            } catch (error) {
-                showError(`向きセンサーを初期化できませんでした: ${error.message}`);
-            }
-        }
-
-        // エラーメッセージ表示用のヘルパー関数
-        function showError(message) {
-            errorMessageElement.textContent = message;
-            errorMessageElement.style.display = 'block';
+            orientationSensor.start();
             permissionPrompt.style.display = 'none';
+            errorMessageElement.style.display = 'none';
+
+        } catch (error) {
+            showError(`向きセンサーを初期化できませんでした: ${error.message}`);
+        }
+    }
+
+    // エラーメッセージ表示用のヘルパー関数
+    function showError(message) {
+        errorMessageElement.textContent = message;
+        errorMessageElement.style.display = 'block';
+        permissionPrompt.style.display = 'none';
+    }
+
+
+    // Three.jsアニメーションループ
+    function animate() {
+        requestAnimationFrame(animate);
+
+        // ★向きの更新は 'reading' イベントリスナー内で行うため、ここでの処理は不要
+
+        // 加速度矢印の更新 (変更なし)
+        if (magnitude > 0.1) {
+            const dir = new THREE.Vector3(currentAcceleration.x, currentAcceleration.y, currentAcceleration.z);
+            const currentArrowMagnitude = Math.min(magnitude * 0.5, 0.8);
+            accelerationArrow.setDirection(dir.normalize());
+            accelerationArrow.setLength(currentArrowMagnitude, 0.2, 0.1);
+            accelerationArrow.visible = true;
+        } else {
+            accelerationArrow.visible = false;
         }
 
+        renderer.render(scene, camera);
+    }
 
-        // Three.jsアニメーションループ
-        function animate() {
-            requestAnimationFrame(animate);
-
-            // ★向きの更新は 'reading' イベントリスナー内で行うため、ここでの処理は不要
-
-            // 加速度矢印の更新 (変更なし)
-            if (magnitude > 0.1) {
-                const dir = new THREE.Vector3(currentAcceleration.x, currentAcceleration.y, currentAcceleration.z);
-                const currentArrowMagnitude = Math.min(magnitude * 0.5, 0.8);
-                accelerationArrow.setDirection(dir.normalize());
-                accelerationArrow.setLength(currentArrowMagnitude, 0.2, 0.1);
-                accelerationArrow.visible = true;
-            } else {
-                accelerationArrow.visible = false;
-            }
-
-            renderer.render(scene, camera);
+    // アプリ起動時の処理を変更
+    window.addEventListener('load', () => {
+        // 許可が必要かどうかを判定
+        if (window.AbsoluteOrientationSensor && typeof AbsoluteOrientationSensor.requestPermission === 'function') {
+            permissionPrompt.style.display = 'flex';
+            requestPermissionButton.addEventListener('click', requestAndInitSensors);
+        } else {
+            // 許可不要のブラウザ or センサー非対応
+            initSensors();
         }
+        animate();
+    });
 
-        // アプリ起動時の処理を変更
-        window.addEventListener('load', () => {
-            // 許可が必要かどうかを判定
-            if (window.AbsoluteOrientationSensor && typeof AbsoluteOrientationSensor.requestPermission === 'function') {
-                permissionPrompt.style.display = 'flex';
-                requestPermissionButton.addEventListener('click', requestAndInitSensors);
-            } else {
-                // 許可不要のブラウザ or センサー非対応
-                initSensors();
-            }
-            animate();
-        });
-
-        // ... (リサイズ処理などはそのまま) ...
+    // ... (リサイズ処理などはそのまま) ...
 
         // ウィンドウのリサイズ対応
         window.addEventListener('resize', () => {
