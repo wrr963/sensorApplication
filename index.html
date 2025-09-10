@@ -1,105 +1,113 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>3D スマホ加速度ビューア</title>
+    <title>DeviceOrientation 許可リクエスト</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
-        /* CSSは変更ありません */
-        body { font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background-color: #f0f2f5; color: #333; overflow: hidden; }
-        h1 { color: #2c3e50; margin-bottom: 20px; text-align: center; }
-        .sensor-data { margin-bottom: 30px; text-align: center; background-color: #ffffff; padding: 20px 30px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
-        .sensor-data p { margin: 5px 0; font-size: 1.1em; font-weight: bold; }
-        #threejsContainer { border: 2px solid #ddd; background-color: #ffffff; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); border-radius: 10px; }
-        .error-message { color: #e74c3c; font-weight: bold; margin-top: 20px; text-align: center; }
-        button { background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 1em; margin-top: 15px; }
-        #permissionPrompt { display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.7); color: white; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; text-align: center; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f0f2f5;
+            text-align: center;
+        }
+        .container {
+            background-color: #fff;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+        button {
+            font-size: 1.2rem;
+            padding: 0.8rem 1.5rem;
+            border-radius: 8px;
+            border: none;
+            background-color: #007aff;
+            color: white;
+            cursor: pointer;
+            margin-bottom: 1rem;
+        }
+        button:disabled {
+            background-color: #ccc;
+        }
+        .sensor-data p {
+            font-size: 1.1em;
+            margin: 0.5rem 0;
+            font-family: monospace; /* 数値が見やすいように */
+        }
+        .sensor-data span {
+            display: inline-block;
+            width: 80px;
+            text-align: right;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
-    <h1>3D スマホ加速度ビューア</h1>
-    <div class="sensor-data">
-        <p id="status-message">センサーの許可を待っています...</p>
-    </div>
-    <div id="threejsContainer" style="width: 300px; height: 300px;"></div>
-    <div id="errorMessage" class="error-message" style="display: none;"></div>
-    <div id="permissionPrompt">
-        <h2>センサーアクセスを許可</h2>
-        <p>デバイスの向きセンサーを使用します。</p>
-        <button id="requestPermissionButton">許可する</button>
+
+    <div class="container">
+        <h1>モーションセンサー</h1>
+        <button id="permissionButton">センサーを有効化</button>
+        
+        <div class="sensor-data">
+            <p>alpha (方角): <span id="alpha">---</span></p>
+            <p>beta (前後傾斜): <span id="beta">---</span></p>
+            <p>gamma (左右傾斜): <span id="gamma">---</span></p>
+        </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/DeviceOrientationControls.js"></script>
-    
     <script>
-        // DOM要素とThree.jsの基本設定
-        const errorMessageElement = document.getElementById('errorMessage');
-        const permissionPrompt = document.getElementById('permissionPrompt');
-        const requestPermissionButton = document.getElementById('requestPermissionButton');
-        const statusMessage = document.getElementById('status-message');
-        const threejsContainer = document.getElementById('threejsContainer');
+        const permissionButton = document.getElementById('permissionButton');
+        const alphaElement = document.getElementById('alpha');
+        const betaElement = document.getElementById('beta');
+        const gammaElement = document.getElementById('gamma');
 
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, 300 / 300, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antias: true, alpha: true });
-        renderer.setSize(300, 300);
-        threejsContainer.appendChild(renderer.domElement);
-        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-        directionalLight.position.set(0, 1, 1).normalize();
-        scene.add(directionalLight);
-        const phoneGeometry = new THREE.BoxGeometry(0.5, 1.0, 0.1);
-        const phoneMaterial = new THREE.MeshPhongMaterial({ color: 0x8888ff });
-        const phoneMesh = new THREE.Mesh(phoneGeometry, phoneMaterial);
-        scene.add(phoneMesh);
-        camera.position.z = 2;
-        
-        let controls;
-
-        function showError(message) {
-            errorMessageElement.textContent = message;
-            errorMessageElement.style.display = 'block';
-        }
-        
-        function initSensors() {
-            controls = new THREE.DeviceOrientationControls(phoneMesh);
-            statusMessage.textContent = 'センサー有効。スマホを傾けてください。';
+        // センサーデータを更新するイベントハンドラ
+        function handleOrientation(event) {
+            alphaElement.textContent = event.alpha.toFixed(2);
+            betaElement.textContent = event.beta.toFixed(2);
+            gammaElement.textContent = event.gamma.toFixed(2);
         }
 
-        requestPermissionButton.addEventListener('click', () => {
-            if (typeof DeviceMotionEvent.requestPermission === 'function') {
-                DeviceMotionEvent.requestPermission().then(permissionState => {
-                    if (permissionState === 'granted') {
-                        permissionPrompt.style.display = 'none';
-                        initSensors();
-                    } else {
-                        showError('センサーへのアクセスが拒否されました。');
-                    }
-                }).catch(error => {
-                    console.error(error);
-                    showError('許可リクエスト中にエラーが発生しました。');
-                });
-            } else {
-                permissionPrompt.style.display = 'none';
-                initSensors();
-            }
-        });
-        
-        function animate() {
-            requestAnimationFrame(animate);
-            if (controls) {
-                controls.update();
-            }
-            renderer.render(scene, camera);
+        // センサーのリスナーを開始する関数
+        function startSensor() {
+            window.addEventListener('deviceorientation', handleOrientation);
+            permissionButton.style.display = 'none'; // ボタンを非表示にする
         }
 
-        window.addEventListener('load', () => {
-            if (typeof DeviceMotionEvent.requestPermission !== 'function') {
-                 permissionPrompt.style.display = 'none';
-                 initSensors();
-            }
-            animate();
-        });
+        // --- ここからがメインのロジック ---
+
+        // 1. DeviceOrientationEvent.requestPermission が存在するかチェック (iOS 13以降のSafariの目印)
+        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+            
+            // iOS 13以降のデバイスの場合
+            permissionButton.addEventListener('click', () => {
+                DeviceOrientationEvent.requestPermission()
+                    .then(response => {
+                        if (response === 'granted') {
+                            // 許可された場合
+                            startSensor();
+                        } else {
+                            // 拒否された場合
+                            alert('センサーの使用が許可されませんでした。');
+                        }
+                    })
+                    .catch(error => {
+                        // エラーが発生した場合
+                        console.error(error);
+                        alert('センサーの許可リクエスト中にエラーが発生しました。');
+                    });
+            });
+
+        } else {
+            // Androidや古いiOSなど、許可が不要なデバイスの場合
+            console.log('このデバイスでは許可リクエストは不要です。');
+            startSensor();
+        }
     </script>
 </body>
 </html>
