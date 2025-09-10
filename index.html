@@ -4,6 +4,7 @@
     <title>3D スマホ加速度ビューア</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
+        /* CSSスタイルは変更ありません */
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             display: flex;
@@ -39,12 +40,11 @@
             text-align: right;
             color: #007bff;
         }
-        #threejsCanvas {
+        #threejsContainer {
             border: 2px solid #ddd;
             background-color: #ffffff;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
             border-radius: 10px;
-            display: block; /* canvas要素の余白をなくす */
         }
         .error-message {
             color: #e74c3c;
@@ -72,7 +72,7 @@
             background-color: #0056b3;
         }
         #permissionPrompt {
-            display: none;
+            display: flex; /* ★ 初期表示をflexに変更 */
             position: fixed;
             top: 0;
             left: 0;
@@ -93,10 +93,10 @@
     <h1>3D スマホ加速度ビューア</h1>
 
     <div class="sensor-data">
-        <p>X軸 (左右): <span id="x-axis">0.00</span> m/s²</p>
-        <p>Y軸 (前後): <span id="y-axis">0.00</span> m/s²</p>
-        <p>Z軸 (上下): <span id="z-axis">0.00</span> m/s²</p>
-        <p>合計加速度: <span id="magnitude">0.00</span> m/s²</p>
+        <p>X軸: <span id="x-axis">0.00</span> m/s²</p>
+        <p>Y軸: <span id="y-axis">0.00</span> m/s²</p>
+        <p>Z軸: <span id="z-axis">0.00</span> m/s²</p>
+        <p>合計: <span id="magnitude">0.00</span> m/s²</p>
     </div>
 
     <div id="threejsContainer" style="width: 300px; height: 300px;"></div>
@@ -104,13 +104,11 @@
     <div id="errorMessage" class="error-message" style="display: none;"></div>
     <div class="info-message">
         <p>※ このアプリはHTTPS接続でのみ動作します。</p>
-        <p>※ センサーへのアクセス許可を求められた場合は「許可」してください。</p>
-        <p>※ iOS Safariでは、センサー使用前に画面タップが必要です。</p>
     </div>
 
     <div id="permissionPrompt">
-        <h2>センサーアクセスを許可してください</h2>
-        <p>このアプリはデバイスの動きと向きのセンサーを使用します。</p>
+        <h2>センサーアクセスを許可</h2>
+        <p>デバイスの動きと向きのセンサーを使用します。</p>
         <button id="requestPermissionButton">許可する</button>
     </div>
 
@@ -125,160 +123,132 @@
         const requestPermissionButton = document.getElementById('requestPermissionButton');
         const threejsContainer = document.getElementById('threejsContainer');
 
-        let currentAcceleration = { x: 0, y: 0, z: 0 };
         let magnitude = 0;
-        let deviceOrientation = { alpha: 0, beta: 0, gamma: 0 }; // Z, X, Y軸の回転
-        let deviceQuaternion = new THREE.Quaternion(); // デバイスの向きをThree.jsで扱うためのQuaternion
+        let currentAcceleration = { x: 0, y: 0, z: 0 };
 
-        // Three.js シーンのセットアップ
+        // --- Three.jsのセットアップ (変更なし) ---
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, threejsContainer.clientWidth / threejsContainer.clientHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); // alpha: trueで背景透明
-        renderer.setSize(threejsContainer.clientWidth, threejsContainer.clientHeight);
+        const camera = new THREE.PerspectiveCamera(75, 300 / 300, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(300, 300);
         threejsContainer.appendChild(renderer.domElement);
-
-        // ライトの追加
-        const ambientLight = new THREE.AmbientLight(0x404040); // soft white light
-        scene.add(ambientLight);
+        scene.add(new THREE.AmbientLight(0x404040));
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
         directionalLight.position.set(0, 1, 1).normalize();
         scene.add(directionalLight);
-
-        // スマートフォンを模したボックス (デバイス座標系を表現)
         const phoneGeometry = new THREE.BoxGeometry(0.5, 0.1, 1.0); // 幅、厚み、高さ
         const phoneMaterial = new THREE.MeshPhongMaterial({ color: 0x8888ff, transparent: true, opacity: 0.7 });
         const phoneMesh = new THREE.Mesh(phoneGeometry, phoneMaterial);
         scene.add(phoneMesh);
+        const accelerationArrow = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 0), 0.5, 0xff0000);
+        phoneMesh.add(accelerationArrow);
+        camera.position.z = 2;
 
-        // 加速度を表現する矢印
-        const arrowOrigin = new THREE.Vector3(0, 0, 0);
-        const arrowDirection = new THREE.Vector3(0, 0, 0);
-        const arrowLength = 0.8;
-        const arrowHex = 0xff0000; // 赤色
-        const accelerationArrow = new THREE.ArrowHelper(arrowDirection, arrowOrigin, arrowLength, arrowHex);
-        phoneMesh.add(accelerationArrow); // スマホオブジェクトの子要素として追加することで、スマホと一緒に回転する
+        // ★ 変更点：エラーメッセージ表示用のヘルパー関数
+        function showError(message) {
+            errorMessageElement.textContent = message;
+            errorMessageElement.style.display = 'block';
+        }
 
-        camera.position.z = 2; // カメラを少し後ろに引く
+        // ★ 変更点：センサー初期化処理を分離・堅牢化
+        function initSensors() {
+            // --- 向きセンサーの初期化 ---
+            try {
+                const orientationSensor = new AbsoluteOrientationSensor({ frequency: 60 });
+                orientationSensor.addEventListener('reading', () => {
+                    phoneMesh.quaternion.fromArray(orientationSensor.quaternion).normalize();
+                });
+                orientationSensor.addEventListener('error', event => {
+                    // ユーザーが能動的に拒否した場合など
+                    if (event.error.name === 'NotAllowedError') {
+                        showError('向きセンサーの利用が許可されませんでした。');
+                    } else {
+                        showError('向きセンサーでエラーが発生しました。');
+                    }
+                });
+                orientationSensor.start();
+            } catch (error) {
+                // ブラウザがセンサーをサポートしていない場合など
+                showError(`向きセンサーを初期化できません: ${error.message}`);
+            }
 
-        // ... (他のDOM要素取得やThree.jsの初期設定は同じ) ...
+            // --- 加速度センサーの初期化 ---
+            try {
+                const accSensor = new LinearAccelerationSensor({ frequency: 60 });
+                accSensor.addEventListener('reading', () => {
+                    // センサーの読み取り値を格納
+                    currentAcceleration.x = accSensor.x || 0;
+                    currentAcceleration.y = accSensor.y || 0;
+                    currentAcceleration.z = accSensor.z || 0;
 
-        let orientationSensor;
+                    magnitude = Math.sqrt(
+                        currentAcceleration.x**2 + currentAcceleration.y**2 + currentAcceleration.z**2
+                    );
 
-        // センサーアクセス権限の要求と初期化
-        function requestAndInitSensors() {
-            // iOS 13+ Safariの場合
-            if (typeof AbsoluteOrientationSensor.requestPermission === 'function') {
-                AbsoluteOrientationSensor.requestPermission()
+                    // DOM要素の更新
+                    xAxisElement.textContent = currentAcceleration.x.toFixed(2);
+                    yAxisElement.textContent = currentAcceleration.y.toFixed(2);
+                    zAxisElement.textContent = currentAcceleration.z.toFixed(2);
+                    magnitudeElement.textContent = magnitude.toFixed(2);
+                });
+                accSensor.addEventListener('error', event => {
+                    showError('加速度センサーでエラーが発生しました。');
+                });
+                accSensor.start();
+            } catch (error) {
+                showError(`加速度センサーを初期化できません: ${error.message}`);
+                // 加速度センサーがなくても向きだけは動くようにする
+            }
+        }
+
+        // ★ 変更点：ユーザーの操作を起点に許可を求め、センサーを初期化する
+        requestPermissionButton.addEventListener('click', () => {
+            // iOS 13+ の Safari では、ユーザーの操作を起点に許可を求める必要がある
+            if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                DeviceMotionEvent.requestPermission()
                     .then(permissionState => {
                         if (permissionState === 'granted') {
+                            // 加速度とジャイロの両方の許可が得られる
                             initSensors();
                             permissionPrompt.style.display = 'none';
                         } else {
                             showError('センサーへのアクセスが拒否されました。');
                         }
                     })
-                    .catch(error => showError(`センサー許可エラー: ${error.message}`));
+                    .catch(error => showError(`許可のリクエスト中にエラー: ${error.message}`));
             } else {
-                // 許可が不要なブラウザ
+                // Android Chrome など、明示的な許可が不要なブラウザ
                 initSensors();
-            }
-        }
-
-        // センサーの初期化とデータ取得
-        function initSensors() {
-            // --- 加速度センサーはそのまま ---
-            if ('LinearAccelerationSensor' in window) {
-                const accSensor = new LinearAccelerationSensor({ frequency: 60 });
-                accSensor.addEventListener('reading', () => {
-                    // ... (加速度の処理は変更なし) ...
-                    currentAcceleration.x = accSensor.x || 0;
-                    currentAcceleration.y = accSensor.z || 0;
-                    currentAcceleration.z = -(accSensor.y || 0);
-                    magnitude = Math.sqrt(
-                        currentAcceleration.x**2 + currentAcceleration.y**2 + currentAcceleration.z**2
-                    );
-                    // ... (DOM更新も変更なし) ...
-                });
-                accSensor.start();
-            } else {
-                showError('加速度センサーはサポートされていません。');
-            }
-
-            // --- ★向きセンサーを AbsoluteOrientationSensor に変更 ---
-            try {
-                orientationSensor = new AbsoluteOrientationSensor({ frequency: 60 });
-
-                orientationSensor.addEventListener('error', event => {
-                    showError(`向きセンサーエラー: ${event.error.name}, ${event.error.message}`);
-                });
-
-                orientationSensor.addEventListener('reading', () => {
-                    // センサーから直接クォータニオンを取得し、Three.jsのオブジェクトに適用
-                    // これだけで画面の向きなどを考慮した正しい向きが得られる
-                    phoneMesh.quaternion.fromArray(orientationSensor.quaternion);
-                });
-
-                orientationSensor.start();
                 permissionPrompt.style.display = 'none';
-                errorMessageElement.style.display = 'none';
-
-            } catch (error) {
-                showError(`向きセンサーを初期化できませんでした: ${error.message}`);
             }
-        }
+        });
 
-        // エラーメッセージ表示用のヘルパー関数
-        function showError(message) {
-            errorMessageElement.textContent = message;
-            errorMessageElement.style.display = 'block';
-            permissionPrompt.style.display = 'none';
-        }
-
-
-        // Three.jsアニメーションループ
+        // アニメーションループ (変更なし)
         function animate() {
             requestAnimationFrame(animate);
 
-            // ★向きの更新は 'reading' イベントリスナー内で行うため、ここでの処理は不要
-
-            // 加速度矢印の更新 (変更なし)
             if (magnitude > 0.1) {
-                const dir = new THREE.Vector3(currentAcceleration.x, currentAcceleration.y, currentAcceleration.z);
-                const currentArrowMagnitude = Math.min(magnitude * 0.5, 0.8);
-                accelerationArrow.setDirection(dir.normalize());
-                accelerationArrow.setLength(currentArrowMagnitude, 0.2, 0.1);
+                const dir = new THREE.Vector3(currentAcceleration.x, currentAcceleration.y, currentAcceleration.z).normalize();
+                const arrowLength = Math.min(magnitude * 0.2, 0.8);
+                accelerationArrow.setDirection(dir);
+                accelerationArrow.setLength(arrowLength, 0.1, 0.05);
                 accelerationArrow.visible = true;
             } else {
                 accelerationArrow.visible = false;
             }
-
             renderer.render(scene, camera);
         }
 
-        // アプリ起動時の処理を変更
+        // アプリ起動時の処理
         window.addEventListener('load', () => {
-            // 許可が必要かどうかを判定
-            if (window.AbsoluteOrientationSensor && typeof AbsoluteOrientationSensor.requestPermission === 'function') {
-                permissionPrompt.style.display = 'flex';
-                requestPermissionButton.addEventListener('click', requestAndInitSensors);
-            } else {
-                // 許可不要のブラウザ or センサー非対応
-                initSensors();
+            // Androidなど許可が不要なデバイスのためにプロンプトを非表示にするかチェック
+            if (typeof DeviceMotionEvent === 'undefined' || typeof DeviceMotionEvent.requestPermission !== 'function') {
+                 permissionPrompt.style.display = 'none';
+                 initSensors(); // Androidなどでは直接初期化
             }
+            // iOSではユーザーのクリック待ち
             animate();
         });
-
-        // ... (リサイズ処理などはそのまま) ...
-
-        // ウィンドウのリサイズ対応
-        window.addEventListener('resize', () => {
-            const width = threejsContainer.clientWidth;
-            const height = threejsContainer.clientHeight;
-            renderer.setSize(width, height);
-            camera.aspect = width / height;
-            camera.updateProjectionMatrix();
-        });
-
     </script>
 </body>
 </html>
