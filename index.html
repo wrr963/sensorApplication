@@ -145,7 +145,7 @@
         scene.add(directionalLight);
 
         // スマートフォンを模したボックス (デバイス座標系を表現)
-        const phoneGeometry = new THREE.BoxGeometry(0.5, 1.0, 0.1); // 幅、高さ、厚み
+        const phoneGeometry = new THREE.BoxGeometry(0.5, 0.1, 1.0); // 幅、高さ、厚み
         const phoneMaterial = new THREE.MeshPhongMaterial({ color: 0x8888ff, transparent: true, opacity: 0.7 });
         const phoneMesh = new THREE.Mesh(phoneGeometry, phoneMaterial);
         scene.add(phoneMesh);
